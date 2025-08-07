@@ -48,3 +48,6 @@ contracts/broadcast/
 # IDE
 .vscode/
 .idea/
+
+lib/openzeppelin-contracts/
+lib/forge-std/

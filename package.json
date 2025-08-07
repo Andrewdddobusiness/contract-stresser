@@ -15,8 +15,9 @@
     "typecheck": "tsc --noEmit",
     "forge:build": "forge build",
     "forge:test": "forge test",
-    "forge:deploy": "forge script script/Deploy.s.sol --rpc-url localhost --broadcast",
-    "anvil": "anvil"
+    "forge:deploy": "PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 ETHERSCAN_API_KEY=dummy forge script Deploy --rpc-url http://localhost:8545 --broadcast",
+    "anvil": "anvil",
+    "forge:check-deployment": "cast call $CONTRACT_ADDRESS \"name()\" --rpc-url http://localhost:8545"
   },
   "keywords": [],
   "author": "",
