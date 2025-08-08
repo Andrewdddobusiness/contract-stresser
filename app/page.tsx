@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { ArrowRight, Upload, FlaskConical, BarChart3, Zap, Shield, Gauge } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { ConnectionTest } from '@/components/test/ConnectionTest'
 
 const features = [
   {
@@ -94,6 +95,11 @@ export default function HomePage() {
                 <div className="text-2xl font-bold text-primary">Multi-chain</div>
                 <div className="text-sm text-muted-foreground">Local & testnet support</div>
               </div>
+            </div>
+            
+            {/* Connection Test */}
+            <div className="mt-16">
+              <ConnectionTest />
             </div>
           </div>
         </div>

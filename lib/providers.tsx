@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
 import { wagmiConfig } from './wagmi'
+import { ConnectionProvider } from '@/services/blockchain'
 import { useState } from 'react'
 import '@rainbow-me/rainbowkit/styles.css'
 
@@ -39,7 +40,9 @@ export function Providers({ children }: ProvidersProps) {
           modalSize="compact"
           showRecentTransactions={true}
         >
-          {children}
+          <ConnectionProvider>
+            {children}
+          </ConnectionProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
