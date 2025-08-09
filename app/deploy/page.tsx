@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from 'react'
 import { useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
@@ -14,6 +15,8 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { deployContract, estimateDeploymentCost, monitorDeployment } from '@/services/blockchain/deploy'
+import type { DeploymentParams } from '@/services/blockchain/deploy'
 
 const deployFormSchema = z.object({
   name: z.string().min(1, 'Token name is required').max(50, 'Token name must be less than 50 characters'),
@@ -50,7 +53,15 @@ export default function DeployPage() {
     address?: string
     txHash?: string
     error?: string
+    gasUsed?: string
+    deploymentCost?: string
   }>({})
+  const [gasEstimate, setGasEstimate] = useState<{
+    gasEstimate: string
+    gasPrice: string
+    estimatedCost: string
+    estimatedCostEth: string
+  } | null>(null)
 
   const form = useForm<DeployFormValues>({
     resolver: zodResolver(deployFormSchema),
@@ -68,15 +79,23 @@ export default function DeployPage() {
     setDeploymentResult({})
     
     try {
-      // TODO: Implement actual deployment logic
-      console.log('Deploying contract with:', data)
+      const deploymentParams: DeploymentParams = {
+        name: data.name,
+        symbol: data.symbol,
+        decimals: parseInt(data.decimals),
+        totalSupply: data.totalSupply,
+        network: data.network,
+      }
       
-      // Simulated deployment
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      console.log('Deploying contract with:', deploymentParams)
+      
+      const result = await deployContract(deploymentParams)
       
       setDeploymentResult({
-        address: '0x' + Math.random().toString(16).slice(2, 42),
-        txHash: '0x' + Math.random().toString(16).slice(2, 66),
+        address: result.address,
+        txHash: result.txHash,
+        gasUsed: result.gasUsed.toString(),
+        deploymentCost: (Number(result.deploymentCost) / 1e18).toFixed(6),
       })
     } catch (error) {
       setDeploymentResult({
@@ -86,6 +105,43 @@ export default function DeployPage() {
       setIsDeploying(false)
     }
   }
+  
+  // Estimate gas cost when form values change
+  const watchedValues = form.watch()
+  const isFormValid = form.formState.isValid && watchedValues.name && watchedValues.symbol
+  
+  React.useEffect(() => {
+    if (!isFormValid) {
+      setGasEstimate(null)
+      return
+    }
+    
+    const estimateGas = async () => {
+      try {
+        const deploymentParams: DeploymentParams = {
+          name: watchedValues.name,
+          symbol: watchedValues.symbol,
+          decimals: parseInt(watchedValues.decimals || '18'),
+          totalSupply: watchedValues.totalSupply || '1000000',
+          network: watchedValues.network || 'local',
+        }
+        
+        const estimate = await estimateDeploymentCost(deploymentParams)
+        setGasEstimate({
+          gasEstimate: estimate.gasEstimate.toString(),
+          gasPrice: estimate.gasPrice.toString(),
+          estimatedCost: estimate.estimatedCost.toString(),
+          estimatedCostEth: estimate.estimatedCostEth,
+        })
+      } catch (error) {
+        console.error('Gas estimation failed:', error)
+        setGasEstimate(null)
+      }
+    }
+    
+    const debounceTimer = setTimeout(estimateGas, 500)
+    return () => clearTimeout(debounceTimer)
+  }, [watchedValues, isFormValid])
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -278,6 +334,32 @@ export default function DeployPage() {
                     {form.watch('decimals') || '-'}
                   </span>
                 </div>
+                
+                {gasEstimate && (
+                  <>
+                    <div className="border-t pt-4">
+                      <h4 className="text-sm font-medium mb-2">Gas Estimation</h4>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Estimated Gas</span>
+                      <span className="font-medium">
+                        {parseInt(gasEstimate.gasEstimate).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Gas Price</span>
+                      <span className="font-medium">
+                        {(parseInt(gasEstimate.gasPrice) / 1e9).toFixed(2)} gwei
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Est. Cost</span>
+                      <span className="font-medium">
+                        {parseFloat(gasEstimate.estimatedCostEth).toFixed(6)} ETH
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -287,15 +369,27 @@ export default function DeployPage() {
               <CardHeader>
                 <CardTitle className="text-success">Deployment Successful!</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
                 <div>
                   <span className="text-muted-foreground">Contract Address:</span>
-                  <p className="font-mono text-sm">{deploymentResult.address}</p>
+                  <p className="font-mono text-sm break-all">{deploymentResult.address}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Transaction Hash:</span>
-                  <p className="font-mono text-sm">{deploymentResult.txHash}</p>
+                  <p className="font-mono text-sm break-all">{deploymentResult.txHash}</p>
                 </div>
+                {deploymentResult.gasUsed && (
+                  <div>
+                    <span className="text-muted-foreground">Gas Used:</span>
+                    <p className="text-sm">{parseInt(deploymentResult.gasUsed).toLocaleString()}</p>
+                  </div>
+                )}
+                {deploymentResult.deploymentCost && (
+                  <div>
+                    <span className="text-muted-foreground">Deployment Cost:</span>
+                    <p className="text-sm">{deploymentResult.deploymentCost} ETH</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
