@@ -1,5 +1,6 @@
 import { Metadata } from 'next'
 import { BarChart3, Activity, Zap } from 'lucide-react'
+import { ContractList } from '@/components/contracts'
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -57,15 +58,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mt-8 rounded-lg border bg-card p-6">
-        <h3 className="mb-4 text-lg font-semibold">Recent Activity</h3>
-        <div className="flex h-48 items-center justify-center text-muted-foreground">
-          <div className="text-center">
-            <BarChart3 className="mx-auto mb-2 h-12 w-12" />
-            <p>No recent activity</p>
-            <p className="text-sm">Deploy a contract and run tests to see data</p>
-          </div>
-        </div>
+      <div className="mt-8">
+        <ContractList />
       </div>
     </div>
   )

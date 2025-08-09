@@ -43,18 +43,9 @@ export interface DeploymentStatus {
   error?: string
 }
 
-export interface StoredContract {
-  id: string
-  address: Address
-  name: string
-  symbol: string
-  decimals: number
-  totalSupply: string
-  network: string
-  deployedAt: Date
-  txHash: Hash
-  deployerAddress: Address
-}
+// Import from the centralized types
+import { contractStorage } from '@/services/contracts'
+import type { ContractMetadata } from '@/types/contracts'
 
 const CONTRACT_ABI = testTokenArtifact.abi
 const CONTRACT_BYTECODE = testTokenArtifact.bytecode.object as `0x${string}`
@@ -151,8 +142,9 @@ export async function deployContract(params: DeploymentParams): Promise<Deployme
     
     const deploymentCost = gasLimit * gasPrice
     
-    // Store deployed contract
-    const contractInfo: StoredContract = {
+    // Store deployed contract using the centralized service
+    const chainId = params.network === 'local' ? anvil.id : sepolia.id
+    const contractInfo: ContractMetadata = {
       id: crypto.randomUUID(),
       address: mockAddress,
       name: params.name,
@@ -160,12 +152,17 @@ export async function deployContract(params: DeploymentParams): Promise<Deployme
       decimals: params.decimals,
       totalSupply: params.totalSupply,
       network: params.network,
+      chainId,
       deployedAt: new Date(),
       txHash,
       deployerAddress: deployerAccount.address,
+      gasUsed: gasLimit,
+      deploymentCost,
+      verified: false,
+      tags: ['deployed'],
     }
     
-    storeDeployedContract(contractInfo)
+    contractStorage.addContract(contractInfo)
     
     return {
       address: mockAddress,
@@ -335,50 +332,3 @@ export async function retryDeployment(
   )
 }
 
-// Local storage functions
-const STORAGE_KEY = 'deployed-contracts'
-
-export function storeDeployedContract(contract: StoredContract): void {
-  try {
-    const stored = getStoredContracts()
-    stored.push(contract)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored))
-  } catch (error) {
-    console.error('Failed to store contract:', error)
-  }
-}
-
-export function getStoredContracts(): StoredContract[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (!stored) return []
-    
-    const contracts = JSON.parse(stored)
-    // Convert date strings back to Date objects
-    return contracts.map((contract: any) => ({
-      ...contract,
-      deployedAt: new Date(contract.deployedAt),
-    }))
-  } catch (error) {
-    console.error('Failed to retrieve stored contracts:', error)
-    return []
-  }
-}
-
-export function removeStoredContract(contractId: string): void {
-  try {
-    const stored = getStoredContracts()
-    const filtered = stored.filter(contract => contract.id !== contractId)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered))
-  } catch (error) {
-    console.error('Failed to remove stored contract:', error)
-  }
-}
-
-export function clearStoredContracts(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY)
-  } catch (error) {
-    console.error('Failed to clear stored contracts:', error)
-  }
-}
