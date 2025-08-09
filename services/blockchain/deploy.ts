@@ -26,6 +26,8 @@ export interface DeploymentParams {
   totalSupply: string
   network: 'local' | 'sepolia'
   deployerPrivateKey?: `0x${string}`
+  gasPrice?: bigint
+  gasLimit?: bigint
 }
 
 export interface DeploymentResult {
@@ -86,23 +88,31 @@ export async function deployContract(params: DeploymentParams): Promise<Deployme
   ] as const
   
   try {
-    // Estimate gas for deployment
-    const deployData = encodeDeployData({
-      abi: CONTRACT_ABI,
-      bytecode: CONTRACT_BYTECODE,
-      args: constructorArgs,
-    })
+    // Use provided gas parameters or estimate
+    let gasLimit = params.gasLimit
+    let gasPrice = params.gasPrice
     
-    const gasEstimate = await publicClient.estimateGas({
-      account: deployerAccount,
-      data: deployData,
-    })
+    if (!gasLimit) {
+      // Estimate gas for deployment
+      const deployData = encodeDeployData({
+        abi: CONTRACT_ABI,
+        bytecode: CONTRACT_BYTECODE,
+        args: constructorArgs,
+      })
+      
+      const gasEstimate = await publicClient.estimateGas({
+        account: deployerAccount,
+        data: deployData,
+      })
+      
+      // Add 20% buffer to gas estimate
+      gasLimit = (gasEstimate * BigInt(120)) / BigInt(100)
+    }
     
-    // Add 20% buffer to gas estimate
-    const gasLimit = (gasEstimate * BigInt(120)) / BigInt(100)
-    
-    // Get current gas price
-    const gasPrice = await publicClient.getGasPrice()
+    if (!gasPrice) {
+      // Get current gas price
+      gasPrice = await publicClient.getGasPrice()
+    }
     
     // TODO: Fix type issues with contract deployment
     // Simulated deployment for now

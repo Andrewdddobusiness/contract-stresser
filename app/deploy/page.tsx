@@ -15,7 +15,9 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { deployContract, estimateDeploymentCost, monitorDeployment } from '@/services/blockchain/deploy'
+import { deployContract, monitorDeployment } from '@/services/blockchain/deploy'
+import { gasEstimationService } from '@/services/blockchain/gas'
+import type { GasEstimation } from '@/services/blockchain/gas'
 import type { DeploymentParams } from '@/services/blockchain/deploy'
 
 const deployFormSchema = z.object({
@@ -56,12 +58,9 @@ export default function DeployPage() {
     gasUsed?: string
     deploymentCost?: string
   }>({})
-  const [gasEstimate, setGasEstimate] = useState<{
-    gasEstimate: string
-    gasPrice: string
-    estimatedCost: string
-    estimatedCostEth: string
-  } | null>(null)
+  const [gasEstimate, setGasEstimate] = useState<GasEstimation | null>(null)
+  const [selectedGasTier, setSelectedGasTier] = useState<'slow' | 'normal' | 'fast'>('normal')
+  const [gasLoading, setGasLoading] = useState(false)
 
   const form = useForm<DeployFormValues>({
     resolver: zodResolver(deployFormSchema),
@@ -85,6 +84,8 @@ export default function DeployPage() {
         decimals: parseInt(data.decimals),
         totalSupply: data.totalSupply,
         network: data.network,
+        gasPrice: gasEstimate?.gasPrices[selectedGasTier],
+        gasLimit: gasEstimate?.gasLimit,
       }
       
       console.log('Deploying contract with:', deploymentParams)
@@ -117,31 +118,40 @@ export default function DeployPage() {
     }
     
     const estimateGas = async () => {
+      setGasLoading(true)
       try {
-        const deploymentParams: DeploymentParams = {
-          name: watchedValues.name,
-          symbol: watchedValues.symbol,
-          decimals: parseInt(watchedValues.decimals || '18'),
-          totalSupply: watchedValues.totalSupply || '1000000',
-          network: watchedValues.network || 'local',
-        }
+        const targetChainId = watchedValues.network === 'local' ? 31337 : 11155111
         
-        const estimate = await estimateDeploymentCost(deploymentParams)
-        setGasEstimate({
-          gasEstimate: estimate.gasEstimate.toString(),
-          gasPrice: estimate.gasPrice.toString(),
-          estimatedCost: estimate.estimatedCost.toString(),
-          estimatedCostEth: estimate.estimatedCostEth,
-        })
+        // Mock bytecode for ERC-20 deployment - in real app this would come from contract compilation
+        const mockBytecode = '0x608060405234801561001057600080fd5b5060405161090038038061090083398101604081905261002f916100b8565b8181600390805190602001906100469291906100e2565b508060049080519060200190610063929190610e2565b5050600560006101008201523061007e6100b3565b61007e565b600160006101008201526001600160a01b0316815260200190815260200160002081905550336001600160a01b031660006001600160a01b03167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef836040516100e691815260200190565b60405180910390a350610178565b6001600160a01b031690565b6001600160a01b031690565b6001600160a01b031690565b6001600160a01b031690565b600080fd5b600080fd5b600080fd5b600080fd5b600080fd5b600080fd5b600080fd5b50565b6000610144506103ff82101561014c57600080fd5b600082601f830112610151578081fd5b813567ffffffffffffffff811115610168578182fd5b600080fd5b600080fd5b600080fd5b600080fd5b600080fd5b600080fd5b600080fd5b600080fd5b61008180610187565b600082601f830112610151578081fd5b813567ffffffffffffffff811115610168578182fd5b61017881610144565b600080f' as `0x${string}`
+        
+        const constructorArgs = [
+          watchedValues.name,
+          watchedValues.symbol,
+          parseInt(watchedValues.decimals || '18'),
+          watchedValues.totalSupply || '1000000'
+        ]
+        
+        const estimate = await gasEstimationService.estimateDeploymentGas(
+          targetChainId,
+          mockBytecode,
+          [], // Mock ABI
+          constructorArgs,
+          address
+        )
+        
+        setGasEstimate(estimate)
       } catch (error) {
         console.error('Gas estimation failed:', error)
         setGasEstimate(null)
+      } finally {
+        setGasLoading(false)
       }
     }
     
     const debounceTimer = setTimeout(estimateGas, 500)
     return () => clearTimeout(debounceTimer)
-  }, [watchedValues, isFormValid])
+  }, [watchedValues, isFormValid, address])
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -335,28 +345,83 @@ export default function DeployPage() {
                   </span>
                 </div>
                 
+                {gasLoading && (
+                  <div className="border-t pt-4">
+                    <div className="flex items-center text-sm text-muted-foreground">
+                      <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full mr-2"></div>
+                      Estimating gas costs...
+                    </div>
+                  </div>
+                )}
+                
                 {gasEstimate && (
                   <>
                     <div className="border-t pt-4">
-                      <h4 className="text-sm font-medium mb-2">Gas Estimation</h4>
+                      <h4 className="text-sm font-medium mb-3">Gas Estimation</h4>
+                      
+                      {/* Gas Tier Selection */}
+                      <div className="space-y-2 mb-4">
+                        <label className="text-xs font-medium text-muted-foreground">Gas Speed</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(['slow', 'normal', 'fast'] as const).map((tier) => {
+                            const cost = gasEstimate.estimatedCosts[tier]
+                            const isSelected = selectedGasTier === tier
+                            return (
+                              <button
+                                key={tier}
+                                type="button"
+                                onClick={() => setSelectedGasTier(tier)}
+                                className={`p-2 rounded border text-xs transition-colors ${
+                                  isSelected
+                                    ? 'border-primary bg-primary text-primary-foreground'
+                                    : 'border-border hover:bg-accent'
+                                }`}
+                              >
+                                <div className="font-medium capitalize">{tier}</div>
+                                <div className="text-xs opacity-75">{cost.gwei} gwei</div>
+                                <div className="text-xs font-medium">{cost.usd}</div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
                     </div>
+                    
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Estimated Gas</span>
+                      <span className="text-muted-foreground">Gas Limit</span>
                       <span className="font-medium">
-                        {parseInt(gasEstimate.gasEstimate).toLocaleString()}
+                        {gasEstimate.gasLimit.toLocaleString()}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Gas Price</span>
+                      <span className="text-muted-foreground">Gas Price ({selectedGasTier})</span>
                       <span className="font-medium">
-                        {(parseInt(gasEstimate.gasPrice) / 1e9).toFixed(2)} gwei
+                        {gasEstimate.estimatedCosts[selectedGasTier].gwei} gwei
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Est. Cost</span>
                       <span className="font-medium">
-                        {parseFloat(gasEstimate.estimatedCostEth).toFixed(6)} ETH
+                        {gasEstimate.estimatedCosts[selectedGasTier].eth} ETH
+                        {gasEstimate.estimatedCosts[selectedGasTier].usd && (
+                          <span className="text-muted-foreground ml-1">
+                            ({gasEstimate.estimatedCosts[selectedGasTier].usd})
+                          </span>
+                        )}
                       </span>
+                    </div>
+                    
+                    {/* Recommendations */}
+                    <div className="mt-3 p-2 bg-muted rounded text-xs">
+                      <div className="font-medium mb-1">💡 Recommendation</div>
+                      <div className="text-muted-foreground">
+                        {gasEstimate.recommendations.reasoning}
+                      </div>
+                      {gasEstimate.recommendations.tier !== selectedGasTier && (
+                        <div className="mt-1 text-primary">
+                          Consider using {gasEstimate.recommendations.tier} speed
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
