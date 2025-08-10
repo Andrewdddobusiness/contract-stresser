@@ -22,6 +22,7 @@ import type {
 } from '@/types/testing'
 import { gasEstimationService } from '../blockchain/gas'
 import { useErrorRecovery } from '@/hooks/useErrorRecovery'
+import { accountManager } from './accounts'
 
 interface ExecutorOptions {
   onProgress?: (execution: TestExecution) => void
@@ -234,40 +235,32 @@ export class TestExecutor {
 
     const accountCount = config.useMultipleAccounts ? config.accountCount : 1
 
-    for (let i = 0; i < accountCount; i++) {
-      // Generate random private key for testing
-      const privateKey = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('')}` as `0x${string}`
-      
-      const account = privateKeyToAccount(privateKey)
-      
-      const walletClient = createWalletClient({
-        account,
-        chain: this.publicClient.chain,
-        transport: http(this.publicClient.chain?.id === anvil.id ? 'http://localhost:8545' : sepolia.rpcUrls.default.http[0])
-      })
+    // Use AccountManager to generate accounts
+    this.accounts = await accountManager.generateAccounts({
+      count: accountCount,
+      fundingAmount: config.fundingAmount,
+      network: config.network,
+      namePrefix: 'StressTest'
+    })
 
-      this.walletClients.set(account.address, walletClient)
+    // Create wallet clients for each account
+    for (const account of this.accounts) {
+      if (account.privateKey) {
+        const vAccount = privateKeyToAccount(account.privateKey)
+        
+        const walletClient = createWalletClient({
+          account: vAccount,
+          chain: this.publicClient.chain,
+          transport: http(this.publicClient.chain?.id === anvil.id ? 'http://localhost:8545' : sepolia.rpcUrls.default.http[0])
+        })
 
-      // Get current balance and nonce
-      const balance = await this.publicClient.getBalance({ address: account.address })
-      const nonce = await this.publicClient.getTransactionCount({ address: account.address })
-
-      const accountInfo: AccountInfo = {
-        address: account.address,
-        privateKey,
-        balance,
-        nonce,
-        isActive: true,
-        transactionCount: 0
-      }
-
-      this.accounts.push(accountInfo)
-
-      // Fund account if needed (for local network)
-      if (config.network === 'local' && balance === BigInt(0)) {
-        await this.fundAccount(accountInfo, parseEther(config.fundingAmount))
+        this.walletClients.set(account.address, walletClient)
+      } else {
+        // For impersonated accounts, get wallet client from account manager
+        const walletClient = accountManager.getWalletClient(account.address)
+        if (walletClient) {
+          this.walletClients.set(account.address, walletClient)
+        }
       }
     }
 
@@ -277,37 +270,19 @@ export class TestExecutor {
     )
   }
 
-  private async fundAccount(account: AccountInfo, amount: bigint): Promise<void> {
-    if (!this.publicClient) throw new Error('Public client not initialized')
-
-    // For Anvil, we can use the default funded account
-    const defaultPrivateKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
-    const defaultAccount = privateKeyToAccount(defaultPrivateKey)
-    
-    const funderClient = createWalletClient({
-      account: defaultAccount,
-      chain: this.publicClient.chain,
-      transport: http('http://localhost:8545')
-    })
-
-    const hash = await funderClient.sendTransaction({
-      to: account.address,
-      value: amount,
-      chain: this.publicClient.chain
-    })
-
-    // Wait for confirmation
-    await this.publicClient.waitForTransactionReceipt({ hash })
-    
-    // Update account balance
-    account.balance = await this.publicClient.getBalance({ address: account.address })
-  }
 
   private async createJobs(config: TestConfiguration): Promise<void> {
     this.jobQueue = []
     
+    // Create account rotation strategy for efficient account selection
+    const rotationStrategy = accountManager.createRotationStrategy(
+      this.accounts, 
+      config.mode === 'multi-user' ? 'round-robin' : 'least-used'
+    )
+    
     for (let i = 0; i < config.iterations; i++) {
-      const account = this.accounts[i % this.accounts.length]
+      // Use rotation strategy to select account
+      const account = accountManager.getNextAccount(rotationStrategy) || this.accounts[i % this.accounts.length]
       
       const job: TransactionJob = {
         id: crypto.randomUUID(),
@@ -606,6 +581,10 @@ export class TestExecutor {
     if (account) {
       account.transactionCount++
       account.lastUsed = new Date()
+      
+      // Update account manager's usage statistics
+      const currentUsage = accountManager.getUsageStats().get(address) || 0
+      accountManager.getUsageStats().set(address, currentUsage + 1)
     }
   }
 
@@ -663,6 +642,9 @@ export class TestExecutor {
     this.activeJobs.clear()
     this.abortController = null
     this.isPaused = false
+    
+    // Don't cleanup account manager as it may be used by other components
+    // accountManager.cleanup()
   }
 }
 

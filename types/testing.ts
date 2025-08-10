@@ -106,6 +106,12 @@ export interface AccountInfo {
   lastUsed?: Date
 }
 
+export interface AccountRotationStrategy {
+  type: 'round-robin' | 'random' | 'balance-weighted' | 'least-used'
+  accounts: AccountInfo[]
+  currentIndex: number
+}
+
 // Predefined scenario templates
 export const TEST_SCENARIOS: TestScenario[] = [
   {
