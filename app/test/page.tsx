@@ -35,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { contractStorage } from '@/services/contracts'
 import type { TestConfiguration, TestScenario } from '@/types/testing'
 import { TEST_SCENARIOS, FUNCTION_TEMPLATES } from '@/types/testing'
+import { useTestExecutor } from '@/hooks/useTestExecutor'
 
 // Form validation schema
 const testConfigSchema = z.object({
@@ -85,6 +86,22 @@ export default function TestPage() {
   const [selectedScenario, setSelectedScenario] = useState<string>('custom-scenario')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [previewMode, setPreviewMode] = useState(false)
+  
+  // Test execution hook
+  const testExecutor = useTestExecutor({
+    onProgress: (execution) => {
+      console.log('Test progress:', execution)
+    },
+    onTransaction: (transaction) => {
+      console.log('New transaction:', transaction)
+    },
+    onError: (error) => {
+      console.error('Test error:', error)
+    },
+    onComplete: (execution) => {
+      console.log('Test completed:', execution)
+    }
+  })
   
   // Get deployed contracts
   const deployedContracts = useMemo(() => {
@@ -169,9 +186,37 @@ export default function TestPage() {
     }
   }, [selectedFunction, append, form, functionTemplate])
   
-  const onSubmit = (data: TestConfigFormValues) => {
-    console.log('Test configuration:', data)
-    // TODO: Start test execution
+  const onSubmit = async (data: TestConfigFormValues) => {
+    try {
+      // Convert form data to test configuration
+      const testConfig: TestConfiguration = {
+        contractAddress: data.contractAddress as Address,
+        functionName: data.functionName,
+        functionArgs: data.functionArgs,
+        iterations: data.iterations,
+        network: 'local', // Default to local for now
+        mode: data.mode,
+        accountCount: data.accountCount,
+        useMultipleAccounts: data.useMultipleAccounts,
+        fundingAmount: data.fundingAmount,
+        delayBetweenTx: data.delayBetweenTx,
+        batchSize: data.batchSize,
+        concurrencyLimit: data.concurrencyLimit,
+        gasPriceTier: data.gasPriceTier,
+        gasLimit: data.customGasLimit ? BigInt(data.customGasLimit) : undefined,
+        gasPrice: data.customGasPrice ? BigInt(data.customGasPrice) : undefined,
+        stopOnError: data.stopOnError,
+        retryFailedTx: data.retryFailedTx,
+        maxRetries: data.maxRetries,
+        timeoutMs: data.timeoutMs,
+      }
+
+      // Start the test
+      await testExecutor.startTest(testConfig)
+    } catch (error) {
+      console.error('Failed to start test:', error)
+      // You might want to show an error notification here
+    }
   }
   
   const estimateTestDuration = () => {
@@ -684,27 +729,145 @@ export default function TestPage() {
                   <Separator />
                   
                   <div className="flex gap-4">
-                    <Button 
-                      type="submit" 
-                      className="flex-1"
-                      disabled={!isConnected}
-                    >
-                      <Play className="w-4 h-4 mr-2" />
-                      Start Test
-                    </Button>
-                    <Button 
-                      type="button" 
-                      variant="outline"
-                      onClick={() => setPreviewMode(true)}
-                    >
-                      Preview Test
-                    </Button>
+                    {testExecutor.isRunning ? (
+                      <div className="flex gap-2 w-full">
+                        <Button 
+                          type="button" 
+                          variant="outline"
+                          className="flex-1"
+                          onClick={testExecutor.isPaused ? testExecutor.resumeTest : testExecutor.pauseTest}
+                        >
+                          {testExecutor.isPaused ? 'Resume' : 'Pause'}
+                        </Button>
+                        <Button 
+                          type="button" 
+                          variant="destructive"
+                          onClick={testExecutor.stopTest}
+                        >
+                          Stop
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <Button 
+                          type="submit" 
+                          className="flex-1"
+                          disabled={!isConnected}
+                        >
+                          <Play className="w-4 h-4 mr-2" />
+                          Start Test
+                        </Button>
+                        <Button 
+                          type="button" 
+                          variant="outline"
+                          onClick={() => setPreviewMode(true)}
+                        >
+                          Preview Test
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </form>
               </Form>
             )}
           </CardContent>
         </Card>
+        
+        {/* Test Execution Status */}
+        {testExecutor.execution && (
+          <Card className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle>
+                <div className="flex items-center justify-between">
+                  Test Execution Status
+                  <Badge variant={
+                    testExecutor.execution.status === 'running' ? 'default' :
+                    testExecutor.execution.status === 'completed' ? 'secondary' :
+                    testExecutor.execution.status === 'failed' ? 'destructive' :
+                    testExecutor.execution.status === 'paused' ? 'outline' : 'secondary'
+                  }>
+                    {testExecutor.execution.status.toUpperCase()}
+                  </Badge>
+                </div>
+              </CardTitle>
+              <CardDescription>
+                {testExecutor.execution.name}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* Progress Bar */}
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span>Progress</span>
+                    <span>{testExecutor.progress}%</span>
+                  </div>
+                  <div className="w-full bg-secondary rounded-full h-2">
+                    <div 
+                      className="bg-primary h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${testExecutor.progress}%` }}
+                    />
+                  </div>
+                </div>
+                
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <div className="text-muted-foreground">Iteration</div>
+                    <div className="text-lg font-semibold">
+                      {testExecutor.execution.currentIteration} / {testExecutor.execution.totalIterations}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Success Rate</div>
+                    <div className="text-lg font-semibold text-green-600">
+                      {testExecutor.successRate}%
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Transactions/sec</div>
+                    <div className="text-lg font-semibold">
+                      {testExecutor.transactionsPerSecond.toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Time Remaining</div>
+                    <div className="text-lg font-semibold">
+                      {testExecutor.estimatedTimeRemaining}s
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Success/Failure Counts */}
+                <div className="flex gap-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span>Successful: {testExecutor.execution.successCount}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                    <span>Failed: {testExecutor.execution.failureCount}</span>
+                  </div>
+                </div>
+                
+                {/* Recent Errors */}
+                {testExecutor.recentErrors.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium mb-2">Recent Errors</h4>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {testExecutor.recentErrors.slice(0, 5).map((error) => (
+                        <div key={error.id} className="text-xs p-2 bg-destructive/10 text-destructive rounded">
+                          <div className="font-medium">Iteration {error.iteration}: {error.errorType}</div>
+                          <div className="truncate">{error.error}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

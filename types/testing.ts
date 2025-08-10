@@ -16,6 +16,9 @@ export interface TestConfiguration {
   functionArgs: any[]
   iterations: number
   
+  // Network settings
+  network: 'local' | 'sepolia'
+  
   // Execution mode
   mode: 'sequential' | 'concurrent' | 'multi-user'
   
@@ -116,6 +119,7 @@ export const TEST_SCENARIOS: TestScenario[] = [
       functionName: 'transfer',
       functionArgs: [],
       iterations: 100,
+      network: 'local',
       mode: 'sequential',
       accountCount: 1,
       useMultipleAccounts: false,
@@ -139,6 +143,7 @@ export const TEST_SCENARIOS: TestScenario[] = [
       functionName: 'transfer',
       functionArgs: [],
       iterations: 50,
+      network: 'local',
       mode: 'concurrent',
       accountCount: 10,
       useMultipleAccounts: true,
@@ -163,6 +168,7 @@ export const TEST_SCENARIOS: TestScenario[] = [
       functionName: 'batchMint',
       functionArgs: [],
       iterations: 20,
+      network: 'local',
       mode: 'multi-user',
       accountCount: 5,
       useMultipleAccounts: true,
@@ -187,6 +193,7 @@ export const TEST_SCENARIOS: TestScenario[] = [
       functionName: 'complexOperation',
       functionArgs: [],
       iterations: 50,
+      network: 'local',
       mode: 'sequential',
       accountCount: 1,
       useMultipleAccounts: false,
@@ -211,6 +218,7 @@ export const TEST_SCENARIOS: TestScenario[] = [
       functionName: '',
       functionArgs: [],
       iterations: 10,
+      network: 'local',
       mode: 'sequential',
       accountCount: 1,
       useMultipleAccounts: false,
