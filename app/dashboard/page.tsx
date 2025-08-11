@@ -409,7 +409,7 @@ export default function DashboardPage() {
         </TabsContent>
 
         <TabsContent value="performance" className="space-y-6">
-          {comparisonData && (
+          {comparisonData && comparisonData.current && (
             <div className="grid gap-6 md:grid-cols-2">
               <Card>
                 <CardHeader>

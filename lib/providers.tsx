@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
-import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
+import { RainbowKitProvider, lightTheme } from '@rainbow-me/rainbowkit'
 import { wagmiConfig } from './wagmi'
 import { ConnectionProvider } from '@/services/blockchain'
 import { useState } from 'react'
@@ -30,7 +30,7 @@ export function Providers({ children }: ProvidersProps) {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider
-          theme={darkTheme({
+          theme={lightTheme({
             accentColor: 'hsl(220.9 39.3% 11%)',
             accentColorForeground: 'hsl(210 20% 98%)',
             borderRadius: 'medium',

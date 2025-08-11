@@ -32,11 +32,11 @@ interface RootLayoutProps {
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+    <html lang="en" suppressHydrationWarning className="light">
+      <body className={`${inter.className} bg-white text-gray-950`}>
         <ErrorBoundary>
           <Providers>
-            <div className="flex min-h-screen flex-col">
+            <div className="flex min-h-screen flex-col bg-background">
               <Navigation />
               <main className="flex-1">
                 <ErrorBoundary>

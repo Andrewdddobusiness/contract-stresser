@@ -123,4 +123,80 @@
   .address {
     @apply font-mono text-sm;
   }
+  
+  /* Enhanced Select Dropdown Styling */
+  [data-radix-select-content],
+  [data-radix-popper-content-wrapper] {
+    background-color: white !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 8px !important;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+  }
+  
+  [data-radix-select-viewport] {
+    padding: 4px !important;
+  }
+  
+  /* Select Item Enhanced Styling */
+  [data-radix-select-item] {
+    background-color: white !important;
+    color: #111827 !important;
+    padding: 8px 32px 8px 8px !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    transition: all 150ms ease-out !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+  }
+  
+  /* Hover States */
+  [data-radix-select-item]:hover,
+  [data-radix-select-item][data-highlighted] {
+    background-color: #f9fafb !important;
+    color: #111827 !important;
+    outline: none !important;
+  }
+  
+  /* Focus States for Keyboard Navigation */
+  [data-radix-select-item]:focus,
+  [data-radix-select-item][data-state="focused"] {
+    background-color: #eff6ff !important;
+    color: #1e40af !important;
+    outline: none !important;
+  }
+  
+  /* Selected/Checked State */
+  [data-radix-select-item][data-state="checked"] {
+    background-color: #eff6ff !important;
+    color: #1e40af !important;
+    font-weight: 500 !important;
+  }
+  
+  /* Disabled States */
+  [data-radix-select-item][data-disabled] {
+    background-color: white !important;
+    color: #9ca3af !important;
+    cursor: not-allowed !important;
+    opacity: 0.5 !important;
+  }
+  
+  /* Check Icon */
+  [data-radix-select-item] svg {
+    color: #2563eb !important;
+  }
+  
+  /* Scroll Buttons */
+  [data-radix-select-scroll-up-button],
+  [data-radix-select-scroll-down-button] {
+    background-color: white !important;
+    color: #6b7280 !important;
+    border: none !important;
+    padding: 4px !important;
+  }
+  
+  [data-radix-select-scroll-up-button]:hover,
+  [data-radix-select-scroll-down-button]:hover {
+    background-color: #f3f4f6 !important;
+    color: #374151 !important;
+  }
 }
