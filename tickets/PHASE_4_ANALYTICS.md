@@ -5,17 +5,17 @@ Implement comprehensive analytics, metrics collection, and visualization for tes
 
 ## Tickets
 
-### TICKET-017: Metrics Collection Service
+### TICKET-017: Metrics Collection Service ✅ COMPLETED
 **Priority**: High  
 **Estimated**: 3 hours  
 **Description**: Collect and process performance metrics during tests.
 
 **Tasks**:
-- [ ] Create services/analytics/metrics.ts
-- [ ] Implement transaction timing collection
-- [ ] Add gas usage tracking per transaction
-- [ ] Calculate throughput metrics (TPS)
-- [ ] Store metrics for historical comparison
+- [x] Create services/analytics/metrics.ts
+- [x] Implement transaction timing collection
+- [x] Add gas usage tracking per transaction
+- [x] Calculate throughput metrics (TPS)
+- [x] Store metrics for historical comparison
 
 ---
 

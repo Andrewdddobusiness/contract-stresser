@@ -33,6 +33,14 @@ import {
   logTransaction, 
   logError 
 } from './errorLogger'
+import {
+  testMetricsService,
+  startMetricsCollection,
+  recordTransactionMetrics,
+  recordTransactionSuccess,
+  recordTransactionError,
+  endMetricsCollection
+} from '../analytics/metrics'
 
 interface ExecutorOptions {
   onProgress?: (execution: TestExecution) => void
@@ -125,6 +133,9 @@ export class TestExecutor {
       this.execution.status = 'running'
       this.execution.startTime = new Date()
       
+      // Start metrics collection
+      startMetricsCollection(this.execution)
+      
       // Log test start
       logTest(
         'info',
@@ -159,7 +170,14 @@ export class TestExecutor {
       // Complete execution
       this.execution.status = 'completed'
       this.execution.endTime = new Date()
-      this.calculateMetrics()
+      
+      // End metrics collection and get final metrics
+      const finalMetrics = endMetricsCollection(this.execution.id)
+      if (finalMetrics) {
+        this.execution.transactionsPerSecond = finalMetrics.transactionsPerSecond
+        this.execution.avgGasUsed = finalMetrics.averageGasUsed
+        this.execution.totalCost = finalMetrics.totalGasCost
+      }
       
       // Log test completion
       logTest(
@@ -452,6 +470,17 @@ export class TestExecutor {
 
       const gasLimit = config.gasLimit || BigInt(200000) // Default gas limit
 
+      // Record transaction start for metrics
+      recordTransactionMetrics(
+        this.execution.id,
+        crypto.randomUUID() as Hash, // Temporary, will be updated with actual hash
+        job.iteration,
+        job.account.address,
+        job.functionName,
+        gasLimit,
+        gasPrice
+      )
+
       // Get next nonce
       const nonce = await this.nonceManager.getNextNonce(job.account.address)
 
@@ -472,11 +501,31 @@ export class TestExecutor {
       job.status = 'completed'
       job.completedAt = new Date()
 
+      // Record actual transaction hash for metrics
+      recordTransactionMetrics(
+        this.execution.id,
+        hash,
+        job.iteration,
+        job.account.address,
+        job.functionName,
+        gasLimit,
+        gasPrice
+      )
+
       // Wait for confirmation
       const receipt = await this.publicClient.waitForTransactionReceipt({ 
         hash,
         timeout: config.timeoutMs 
       })
+
+      // Record transaction success in metrics
+      recordTransactionSuccess(
+        hash,
+        receipt.gasUsed,
+        receipt.blockNumber,
+        receipt.blockHash,
+        receipt.transactionIndex
+      )
 
       // Create transaction record
       const transaction: TestTransaction = {
@@ -514,6 +563,11 @@ export class TestExecutor {
       job.status = 'failed'
       job.error = error instanceof Error ? error.message : 'Unknown error'
       job.completedAt = new Date()
+
+      // Record transaction failure in metrics
+      if (job.txHash) {
+        recordTransactionError(job.txHash, job.error, job.retryCount)
+      }
 
       // Create enhanced error context
       const errorContext: ErrorContext = {
