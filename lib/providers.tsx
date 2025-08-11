@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WagmiProvider } from 'wagmi'
 import { RainbowKitProvider, lightTheme } from '@rainbow-me/rainbowkit'
+import { Toaster } from 'react-hot-toast'
 import { wagmiConfig } from './wagmi'
 import { ConnectionProvider } from '@/services/blockchain'
 import { useState } from 'react'
@@ -42,6 +43,17 @@ export function Providers({ children }: ProvidersProps) {
         >
           <ConnectionProvider>
             {children}
+            <Toaster 
+              position="top-right"
+              toastOptions={{
+                duration: 4000,
+                style: {
+                  background: 'hsl(var(--background))',
+                  color: 'hsl(var(--foreground))',
+                  border: '1px solid hsl(var(--border))',
+                },
+              }}
+            />
           </ConnectionProvider>
         </RainbowKitProvider>
       </QueryClientProvider>

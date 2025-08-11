@@ -47,3 +47,16 @@ export {
   useTransactionListener,
   useContractLogs,
 } from './websocket'
+
+// Blocks
+export {
+  blocksService,
+  useRecentBlocks,
+  useBlockDetails,
+  useTransactionDetails,
+  useBlockSearch,
+  useRealtimeBlocks,
+  useLatestBlockNumber,
+  type BlockWithTransactions,
+  type TransactionWithLogs,
+} from './blocks'
