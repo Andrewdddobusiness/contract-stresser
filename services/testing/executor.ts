@@ -23,6 +23,16 @@ import type {
 import { gasEstimationService } from '../blockchain/gas'
 import { useErrorRecovery } from '@/hooks/useErrorRecovery'
 import { accountManager } from './accounts'
+import { 
+  testErrorRecoveryService,
+  type ErrorContext 
+} from './errorRecovery'
+import { 
+  testErrorLogger,
+  logTest, 
+  logTransaction, 
+  logError 
+} from './errorLogger'
 
 interface ExecutorOptions {
   onProgress?: (execution: TestExecution) => void
@@ -114,6 +124,21 @@ export class TestExecutor {
       // Start execution
       this.execution.status = 'running'
       this.execution.startTime = new Date()
+      
+      // Log test start
+      logTest(
+        'info',
+        `Starting ${config.mode} test with ${config.iterations} iterations`,
+        this.execution,
+        {
+          mode: config.mode,
+          network: config.network,
+          accountCount: config.accountCount,
+          contractAddress: config.contractAddress,
+          functionName: config.functionName
+        }
+      )
+      
       this.notifyProgress()
 
       // Execute based on mode
@@ -135,6 +160,20 @@ export class TestExecutor {
       this.execution.status = 'completed'
       this.execution.endTime = new Date()
       this.calculateMetrics()
+      
+      // Log test completion
+      logTest(
+        'info',
+        `Test completed successfully: ${this.execution.successCount}/${this.execution.totalIterations} transactions succeeded`,
+        this.execution,
+        {
+          duration: this.execution.endTime.getTime() - this.execution.startTime!.getTime(),
+          successRate: (this.execution.successCount / this.execution.totalIterations) * 100,
+          transactionsPerSecond: this.execution.transactionsPerSecond || 0,
+          totalErrors: this.execution.errors.length
+        }
+      )
+      
       this.notifyProgress()
       this.options.onComplete?.(this.execution)
 
@@ -456,6 +495,18 @@ export class TestExecutor {
       this.execution.successCount++
       this.execution.currentIteration = job.iteration
       this.updateAccountStats(job.account.address, true)
+      
+      // Log successful transaction
+      logTransaction(
+        'info',
+        `Transaction confirmed successfully`,
+        transaction,
+        {
+          confirmationTimeMs: job.completedAt ? job.completedAt.getTime() - job.executedAt!.getTime() : 0,
+          gasEfficiency: receipt.gasUsed ? Number(receipt.gasUsed) / Number(gasLimit || BigInt(0)) : undefined
+        }
+      )
+      
       this.notifyProgress()
       this.options.onTransaction?.(transaction)
 
@@ -464,16 +515,47 @@ export class TestExecutor {
       job.error = error instanceof Error ? error.message : 'Unknown error'
       job.completedAt = new Date()
 
-      // Create error record
+      // Create enhanced error context
+      const errorContext: ErrorContext = {
+        executionId: this.execution.id,
+        iteration: job.iteration,
+        account: job.account.address,
+        functionName: job.functionName,
+        txHash: job.txHash,
+        gasLimit: job.gasLimit,
+        gasPrice: job.gasPrice,
+        timestamp: new Date(),
+        stackTrace: error instanceof Error ? error.stack : undefined,
+        additionalData: {
+          retryCount: job.retryCount,
+          maxRetries: job.maxRetries,
+          jobId: job.id,
+          args: job.args
+        }
+      }
+
+      // Analyze error with enhanced recovery service
+      const errorInstance = error instanceof Error ? error : new Error(job.error)
+      const analysis = testErrorRecoveryService.analyzeError(errorInstance, errorContext)
+      
+      // Log error with full context
+      const errorEntry = logError(
+        `Transaction failed: ${job.error}`,
+        errorInstance,
+        errorContext,
+        'transaction'
+      )
+
+      // Create test error record
       const testError: TestError = {
-        id: crypto.randomUUID(),
+        id: errorEntry.id,
         timestamp: new Date(),
         iteration: job.iteration,
         account: job.account.address,
         txHash: job.txHash,
         error: job.error,
-        errorType: this.categorizeError(job.error),
-        retryable: this.isRetryableError(job.error),
+        errorType: analysis.errorType,
+        retryable: analysis.isRetryable,
         retryCount: job.retryCount
       }
 
@@ -483,17 +565,64 @@ export class TestExecutor {
       this.notifyProgress()
       this.options.onError?.(testError)
 
-      // Retry if configured
-      if (config.retryFailedTx && job.retryCount < job.maxRetries && testError.retryable) {
-        job.retryCount++
-        job.status = 'pending'
-        await new Promise(resolve => setTimeout(resolve, 1000 * job.retryCount)) // Exponential backoff
-        await this.executeJob(job, config)
-        return
+      // Enhanced retry logic with recovery service
+      if (config.retryFailedTx && job.retryCount < job.maxRetries && analysis.isRetryable) {
+        // Get retry policy from recovery service
+        const retryPolicy = testErrorRecoveryService.getRetryPolicy(errorInstance, errorContext)
+        
+        if (retryPolicy && job.retryCount < retryPolicy.maxRetries) {
+          // Log retry attempt
+          testErrorLogger.info(
+            `Attempting retry ${job.retryCount + 1}/${retryPolicy.maxRetries}`,
+            errorContext,
+            'transaction'
+          )
+
+          // Execute automatic recovery if available
+          const recoverySuccess = await testErrorRecoveryService.executeRecovery(
+            errorInstance,
+            errorContext,
+            (action, success) => {
+              testErrorLogger.logRecoveryAttempt(
+                errorEntry.id,
+                action.id,
+                action.name,
+                success,
+                0, // Duration would be measured in real implementation
+                success ? 'Recovery action completed successfully' : 'Recovery action failed'
+              )
+            }
+          )
+
+          job.retryCount++
+          job.status = 'pending'
+          
+          // Calculate retry delay using recovery service
+          const delay = testErrorRecoveryService.calculateRetryDelay(job.retryCount, retryPolicy)
+          await new Promise(resolve => setTimeout(resolve, delay))
+          
+          // Retry the job
+          await this.executeJob(job, config)
+          return
+        }
+      }
+
+      // Mark error as unresolved if no retry is possible
+      if (!analysis.isRetryable || job.retryCount >= job.maxRetries) {
+        testErrorLogger.info(
+          `Error marked as unresolved: ${analysis.userMessage}`,
+          errorContext,
+          'transaction'
+        )
       }
 
       // Stop on error if configured
       if (config.stopOnError) {
+        testErrorLogger.warn(
+          'Stopping test execution due to error',
+          { ...errorContext, stopOnError: true },
+          'test'
+        )
         this.stopTest()
         return
       }
