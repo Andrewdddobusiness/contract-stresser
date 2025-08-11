@@ -60,3 +60,19 @@ export {
   type BlockWithTransactions,
   type TransactionWithLogs,
 } from './blocks'
+
+// Network Monitoring
+export {
+  networkMonitorService,
+  type NetworkStatus,
+  type NetworkAlert,
+  type NetworkHealth,
+  type GasPriceHistory,
+} from './networkMonitor'
+
+// Custom RPC
+export {
+  customRpcService,
+  type CustomRpcConfig,
+  type CustomRpcConnection,
+} from './customRpc'
