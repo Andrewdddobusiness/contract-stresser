@@ -1,225 +1,264 @@
 'use client'
 
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { TestExecutor } from '@/services/testing/executor'
-import type { 
-  TestConfiguration, 
-  TestExecution, 
-  TestTransaction, 
-  TestError 
-} from '@/types/testing'
+import { useTestMonitoring } from './useTestMonitoring'
+import type { TestConfiguration, TestExecution, TestTransaction, TestError } from '@/types/testing'
 
 interface UseTestExecutorOptions {
   onProgress?: (execution: TestExecution) => void
   onTransaction?: (transaction: TestTransaction) => void
   onError?: (error: TestError) => void
   onComplete?: (execution: TestExecution) => void
+  enableMonitoring?: boolean
 }
 
 interface UseTestExecutorReturn {
-  // State
+  // Execution state
   execution: TestExecution | null
   isRunning: boolean
   isPaused: boolean
+  
+  // Monitoring state (from useTestMonitoring)
+  transactions: TestTransaction[]
+  errors: TestError[]
+  monitoringStats: {
+    totalMonitored: number
+    pendingCount: number
+    confirmedCount: number
+    averageConfirmationTime: number
+    successRate: number
+  }
   
   // Actions
   startTest: (config: TestConfiguration) => Promise<TestExecution>
   pauseTest: () => void
   resumeTest: () => void
   stopTest: () => void
+  retryTest: () => Promise<TestExecution>
   
-  // Stats
+  // Monitoring actions
+  clearMonitoringHistory: () => void
+  
+  // Computed properties for UI compatibility
   progress: number
   successRate: number
   transactionsPerSecond: number
   estimatedTimeRemaining: number
-  
-  // Recent data
-  recentTransactions: TestTransaction[]
   recentErrors: TestError[]
 }
 
 /**
- * Hook for managing test execution with real-time updates
+ * Enhanced test executor hook with integrated real-time monitoring
  */
 export function useTestExecutor(options: UseTestExecutorOptions = {}): UseTestExecutorReturn {
+  const {
+    onProgress,
+    onTransaction,
+    onError,
+    onComplete,
+    enableMonitoring = true
+  } = options
+
   const [execution, setExecution] = useState<TestExecution | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
-  const [recentTransactions, setRecentTransactions] = useState<TestTransaction[]>([])
-  const [recentErrors, setRecentErrors] = useState<TestError[]>([])
-  
+  const [lastConfig, setLastConfig] = useState<TestConfiguration | null>(null)
+
   const executorRef = useRef<TestExecutor | null>(null)
-  const startTimeRef = useRef<Date | null>(null)
-  
-  // Initialize executor
-  useEffect(() => {
-    executorRef.current = new TestExecutor({
-      onProgress: (updatedExecution) => {
-        setExecution(updatedExecution)
-        options.onProgress?.(updatedExecution)
-      },
-      onTransaction: (transaction) => {
-        setRecentTransactions(prev => {
-          const updated = [transaction, ...prev].slice(0, 100) // Keep last 100
-          return updated
-        })
-        options.onTransaction?.(transaction)
-      },
-      onError: (error) => {
-        setRecentErrors(prev => {
-          const updated = [error, ...prev].slice(0, 50) // Keep last 50
-          return updated
-        })
-        options.onError?.(error)
-      },
-      onComplete: (completedExecution) => {
-        setIsRunning(false)
-        setIsPaused(false)
-        setExecution(completedExecution)
-        options.onComplete?.(completedExecution)
-      }
-    })
-    
-    return () => {
-      executorRef.current?.stopTest()
+
+  // Setup monitoring
+  const monitoring = useTestMonitoring({
+    network: execution?.config.network || 'local',
+    pollInterval: 2000,
+    enableWebSocket: false
+  })
+
+  // Enhanced progress handler
+  const handleProgress = useCallback((executionUpdate: TestExecution) => {
+    setExecution(executionUpdate)
+    onProgress?.(executionUpdate)
+  }, [onProgress])
+
+  // Enhanced transaction handler that adds to monitoring
+  const handleTransaction = useCallback((transaction: TestTransaction) => {
+    // Add to monitoring system if hash is available
+    if (enableMonitoring && transaction.txHash && monitoring.service) {
+      monitoring.addTransaction(
+        transaction.txHash,
+        transaction.executionId,
+        transaction.iteration,
+        transaction.account
+      )
     }
-  }, [options])
-  
+    
+    onTransaction?.(transaction)
+  }, [onTransaction, enableMonitoring, monitoring])
+
+  // Enhanced error handler
+  const handleError = useCallback((error: TestError) => {
+    onError?.(error)
+  }, [onError])
+
+  // Enhanced completion handler
+  const handleComplete = useCallback(async (completedExecution: TestExecution) => {
+    setIsRunning(false)
+    setIsPaused(false)
+    setExecution(completedExecution)
+    
+    // Stop monitoring after a delay to catch any final transactions
+    if (enableMonitoring) {
+      setTimeout(() => {
+        monitoring.stopMonitoring()
+      }, 5000)
+    }
+    
+    onComplete?.(completedExecution)
+  }, [onComplete, enableMonitoring, monitoring])
+
+  // Start test execution
   const startTest = useCallback(async (config: TestConfiguration): Promise<TestExecution> => {
-    if (!executorRef.current) {
-      throw new Error('Test executor not initialized')
+    if (isRunning) {
+      throw new Error('Test is already running')
     }
-    
+
     try {
+      // Store config for retry functionality
+      setLastConfig(config)
+      
+      // Create new executor instance
+      executorRef.current = new TestExecutor({
+        onProgress: handleProgress,
+        onTransaction: handleTransaction,
+        onError: handleError,
+        onComplete: handleComplete
+      })
+
       setIsRunning(true)
       setIsPaused(false)
-      setRecentTransactions([])
-      setRecentErrors([])
-      startTimeRef.current = new Date()
       
+      // Start monitoring if enabled
+      if (enableMonitoring) {
+        const dummyExecution: TestExecution = {
+          id: crypto.randomUUID(),
+          name: `${config.mode} test - ${config.iterations} iterations`,
+          status: 'pending',
+          config,
+          currentIteration: 0,
+          totalIterations: config.iterations,
+          successCount: 0,
+          failureCount: 0,
+          errors: []
+        }
+        
+        await monitoring.startMonitoring(dummyExecution)
+      }
+
+      // Start the actual test execution
       const result = await executorRef.current.startTest(config)
-      return result
       
+      return result
     } catch (error) {
       setIsRunning(false)
       setIsPaused(false)
+      
+      if (enableMonitoring) {
+        await monitoring.stopMonitoring()
+      }
+      
       throw error
     }
-  }, [])
-  
+  }, [isRunning, handleProgress, handleTransaction, handleError, handleComplete, enableMonitoring, monitoring])
+
+  // Pause test execution
   const pauseTest = useCallback(() => {
-    if (executorRef.current && isRunning) {
+    if (executorRef.current && isRunning && !isPaused) {
       executorRef.current.pauseTest()
       setIsPaused(true)
     }
-  }, [isRunning])
-  
+  }, [isRunning, isPaused])
+
+  // Resume test execution
   const resumeTest = useCallback(() => {
     if (executorRef.current && isRunning && isPaused) {
       executorRef.current.resumeTest()
       setIsPaused(false)
     }
   }, [isRunning, isPaused])
-  
-  const stopTest = useCallback(() => {
+
+  // Stop test execution
+  const stopTest = useCallback(async () => {
     if (executorRef.current && isRunning) {
       executorRef.current.stopTest()
       setIsRunning(false)
       setIsPaused(false)
+      
+      if (enableMonitoring) {
+        await monitoring.stopMonitoring()
+      }
     }
-  }, [isRunning])
-  
-  // Calculate progress percentage
-  const progress = execution 
-    ? Math.round((execution.currentIteration / execution.totalIterations) * 100)
-    : 0
-  
-  // Calculate success rate
-  const successRate = execution && (execution.successCount + execution.failureCount) > 0
-    ? Math.round((execution.successCount / (execution.successCount + execution.failureCount)) * 100)
-    : 0
-  
-  // Calculate transactions per second
-  const transactionsPerSecond = execution?.transactionsPerSecond || 0
-  
-  // Estimate time remaining
-  const estimatedTimeRemaining = (() => {
-    if (!execution || !startTimeRef.current || transactionsPerSecond === 0) {
-      return 0
+  }, [isRunning, enableMonitoring, monitoring])
+
+  // Retry the last test with same configuration
+  const retryTest = useCallback(async (): Promise<TestExecution> => {
+    if (!lastConfig) {
+      throw new Error('No previous test configuration to retry')
     }
     
-    const remainingTxs = execution.totalIterations - execution.currentIteration
-    return Math.round(remainingTxs / transactionsPerSecond)
-  })()
-  
+    // Clear previous monitoring data
+    if (enableMonitoring) {
+      monitoring.clearHistory()
+    }
+    
+    return startTest(lastConfig)
+  }, [lastConfig, startTest, enableMonitoring, monitoring])
+
+  // Clear monitoring history
+  const clearMonitoringHistory = useCallback(() => {
+    monitoring.clearHistory()
+  }, [monitoring])
+
+  // Computed properties for UI compatibility
+  const progress = execution 
+    ? (execution.totalIterations > 0 ? (execution.currentIteration / execution.totalIterations) * 100 : 0)
+    : 0
+
+  const successRate = monitoring.stats.successRate
+
+  const transactionsPerSecond = execution?.transactionsPerSecond || 0
+
+  const estimatedTimeRemaining = execution && execution.startTime && execution.transactionsPerSecond 
+    ? Math.max(0, (execution.totalIterations - execution.currentIteration) / execution.transactionsPerSecond)
+    : 0
+
+  const recentErrors = monitoring.errors.slice(-5)
+
   return {
-    // State
+    // Execution state
     execution,
     isRunning,
     isPaused,
+    
+    // Monitoring state
+    transactions: monitoring.transactions,
+    errors: monitoring.errors,
+    monitoringStats: monitoring.stats,
     
     // Actions
     startTest,
     pauseTest,
     resumeTest,
     stopTest,
+    retryTest,
     
-    // Stats
+    // Monitoring actions
+    clearMonitoringHistory,
+    
+    // Computed properties for UI compatibility
     progress,
     successRate,
     transactionsPerSecond,
     estimatedTimeRemaining,
-    
-    // Recent data
-    recentTransactions,
-    recentErrors,
-  }
-}
-
-/**
- * Hook for test execution history and statistics
- */
-export function useTestHistory() {
-  const [executions, setExecutions] = useState<TestExecution[]>([])
-  
-  const addExecution = useCallback((execution: TestExecution) => {
-    setExecutions(prev => {
-      const updated = [execution, ...prev]
-      // Keep only last 20 executions
-      return updated.slice(0, 20)
-    })
-  }, [])
-  
-  const clearHistory = useCallback(() => {
-    setExecutions([])
-  }, [])
-  
-  const getExecutionById = useCallback((id: string) => {
-    return executions.find(exec => exec.id === id)
-  }, [executions])
-  
-  // Calculate aggregate stats
-  const totalExecutions = executions.length
-  const successfulExecutions = executions.filter(e => e.status === 'completed').length
-  const totalTransactions = executions.reduce((sum, e) => sum + (e.successCount + e.failureCount), 0)
-  const avgSuccessRate = executions.length > 0 
-    ? executions.reduce((sum, e) => {
-        const total = e.successCount + e.failureCount
-        return sum + (total > 0 ? e.successCount / total : 0)
-      }, 0) / executions.length * 100
-    : 0
-  
-  return {
-    executions,
-    addExecution,
-    clearHistory,
-    getExecutionById,
-    
-    // Stats
-    totalExecutions,
-    successfulExecutions,
-    totalTransactions,
-    avgSuccessRate: Math.round(avgSuccessRate),
+    recentErrors
   }
 }
