@@ -53,10 +53,10 @@ Implement a lightweight block explorer view and additional advanced features.
 **Description**: Additional testing capabilities.
 
 **Tasks**:
-- [ ] Add custom RPC endpoint support
-- [ ] Implement test scheduling
-- [ ] Create test templates/presets
-- [ ] Add A/B testing mode
+- [x] Add custom RPC endpoint support
+- [x] Implement test scheduling
+- [x] Create test templates/presets
+- [x] Add A/B testing mode
 - [ ] Build test automation API
 
 ---
@@ -77,5 +77,5 @@ Implement a lightweight block explorer view and additional advanced features.
 - [x] Block explorer shows accurate blockchain data
 - [x] Can view detailed transaction information
 - [x] Event logs are properly decoded
-- [ ] Advanced features enhance testing capabilities
+- [x] Advanced features enhance testing capabilities
 - [ ] Network status is clearly visible
