@@ -1,6 +1,7 @@
 import { Address, Hash, PublicClient, WalletClient, parseEther, formatEther } from 'viem'
 import { getPublicClient, getWalletClient } from '@/services/blockchain/clients'
 import type { SupportedChainId } from '@/types/blockchain'
+import { permissionEngine } from '@/services/permissions/permissionEngine'
 import { toast } from 'react-hot-toast'
 
 export interface AtomicOperation {
@@ -426,7 +427,7 @@ class AtomicTransactionEngine {
     }
   }
 
-  async executeAtomicOperation(operationId: string, chainId: SupportedChainId = 31337): Promise<ExecutionResult> {
+  async executeAtomicOperation(operationId: string, chainId: SupportedChainId = 31337, userAddress?: Address): Promise<ExecutionResult> {
     const operation = this.operations.get(operationId)
     if (!operation) {
       throw new Error('Operation not found')
@@ -434,6 +435,14 @@ class AtomicTransactionEngine {
 
     if (this.activeExecutions.has(operationId)) {
       throw new Error('Operation already executing')
+    }
+
+    // Check permissions before execution
+    if (userAddress) {
+      const hasPermission = await this.checkExecutionPermissions(operation, userAddress, chainId)
+      if (!hasPermission) {
+        throw new Error('Insufficient permissions to execute this operation')
+      }
     }
 
     // Run simulation first
@@ -796,6 +805,51 @@ class AtomicTransactionEngine {
 
     this.operations.delete(operationId)
     this.savePersistedOperations()
+  }
+
+  private async checkExecutionPermissions(operation: AtomicOperation, userAddress: Address, chainId: SupportedChainId): Promise<boolean> {
+    try {
+      // Check operation-specific permissions
+      switch (operation.type) {
+        case 'swap':
+          return await permissionEngine.checkPermission(
+            userAddress,
+            'swap.execute',
+            '0x0000000000000000000000000000000000000000' as Address,
+            chainId
+          )
+
+        case 'batch':
+          return await permissionEngine.checkPermission(
+            userAddress,
+            'batch.execute',
+            '0x0000000000000000000000000000000000000000' as Address,
+            chainId
+          )
+
+        case 'conditional':
+          return await permissionEngine.checkPermission(
+            userAddress,
+            'conditional.execute',
+            '0x0000000000000000000000000000000000000000' as Address,
+            chainId
+          )
+
+        case 'timelocked':
+          return await permissionEngine.checkPermission(
+            userAddress,
+            'timelock.execute',
+            '0x0000000000000000000000000000000000000000' as Address,
+            chainId
+          )
+
+        default:
+          return false
+      }
+    } catch (error) {
+      console.warn('Permission check failed:', error)
+      return false
+    }
   }
 }
 
