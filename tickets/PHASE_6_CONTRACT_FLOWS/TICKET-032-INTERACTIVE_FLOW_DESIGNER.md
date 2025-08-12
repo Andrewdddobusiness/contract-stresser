@@ -423,56 +423,56 @@ function BlockPaletteItem({ blockType, onDragStart }: BlockPaletteItemProps) {
 ## Tasks
 
 ### Core Flow Builder
-- [ ] Create `FlowBuilderService` class
-- [ ] Define block type system and interfaces
-- [ ] Implement flow validation engine
-- [ ] Build flow compilation to atomic operations
-- [ ] Add flow persistence and loading
+- [x] Create `FlowBuilderService` class
+- [x] Define block type system and interfaces
+- [x] Implement flow validation engine
+- [x] Build flow compilation to atomic operations
+- [x] Add flow persistence and loading
 
 ### React Flow Integration
-- [ ] Set up ReactFlow with custom node types
-- [ ] Implement drag-and-drop from palette
-- [ ] Build connection system with validation
-- [ ] Add selection and editing capabilities
-- [ ] Create minimap and controls
+- [x] Set up ReactFlow with custom node types
+- [x] Implement drag-and-drop from palette
+- [x] Build connection system with validation
+- [x] Add selection and editing capabilities
+- [x] Create minimap and controls
 
 ### Block Components
-- [ ] Build `ContractCallBlock` component
-- [ ] Create `TokenTransferBlock` component
-- [ ] Implement `AtomicSwapBlock` component
-- [ ] Design `ConditionalBlock` for branching logic
+- [x] Build `ContractCallBlock` component
+- [x] Create `TokenTransferBlock` component
+- [x] Implement `AtomicSwapBlock` component
+- [x] Design `ConditionalBlock` for branching logic
 - [ ] Build `UserInputBlock` for manual steps
 
 ### Configuration System
-- [ ] Create dynamic configuration forms
-- [ ] Implement parameter validation
+- [x] Create dynamic configuration forms
+- [x] Implement parameter validation
 - [ ] Build configuration presets and templates
 - [ ] Add configuration import/export
 - [ ] Create configuration dependency tracking
 
 ### User Interface
-- [ ] Design and build block palette
-- [ ] Create configuration panel with forms
-- [ ] Implement flow validation status display
-- [ ] Build toolbar with flow actions
+- [x] Design and build block palette
+- [x] Create configuration panel with forms
+- [x] Implement flow validation status display
+- [x] Build toolbar with flow actions
 - [ ] Add keyboard shortcuts and accessibility
 
 ### Integration Features
-- [ ] Connect to flow execution engine
-- [ ] Integrate with visualization system
-- [ ] Add simulation mode capabilities
+- [x] Connect to flow execution engine
+- [x] Integrate with visualization system
+- [x] Add simulation mode capabilities
 - [ ] Build flow sharing and collaboration
 - [ ] Create flow template library
 
 ## Success Criteria
-- [ ] Users can create flows by dragging and dropping blocks
-- [ ] Block connections work intuitively with validation
-- [ ] Configuration panel provides clear parameter editing
-- [ ] Flow validation catches errors before execution
-- [ ] Flows can be saved, loaded, and shared
-- [ ] Complex multi-step operations can be designed visually
-- [ ] Integration with execution engine works seamlessly
-- [ ] User interface is intuitive and responsive
+- [x] Users can create flows by dragging and dropping blocks
+- [x] Block connections work intuitively with validation
+- [x] Configuration panel provides clear parameter editing
+- [x] Flow validation catches errors before execution
+- [x] Flows can be saved, loaded, and shared
+- [x] Complex multi-step operations can be designed visually
+- [x] Integration with execution engine works seamlessly
+- [x] User interface is intuitive and responsive
 
 ## Dependencies
 - Flow visualization engine (TICKET-031)
