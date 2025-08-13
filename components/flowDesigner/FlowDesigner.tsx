@@ -48,7 +48,12 @@ import {
   FileCode,
   Zap,
   Clock,
-  Info
+  Info,
+  History,
+  Package,
+  Template,
+  GitBranch,
+  Share
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { cn } from '@/utils/cn'
@@ -64,6 +69,12 @@ import {
 import { getBlockDefinition } from '@/services/flowDesigner/blockTypes'
 import { FlowVisualization } from '@/components/visualization/FlowVisualization'
 import { FlowSimulator } from '@/components/visualization/FlowSimulator'
+import { TemplateMarketplace } from '@/components/templates/TemplateMarketplace'
+import { TemplateParameterForm } from '@/components/templates/TemplateParameterForm'
+import { VersionHistory } from '@/components/versioning/VersionHistory'
+import { FlowTemplate, flowTemplateService } from '@/services/templates/templateEngine'
+import { templateImportExportService } from '@/services/templates/templateImportExport'
+import { flowVersioningService } from '@/services/versioning/flowVersioning'
 
 interface FlowDesignerProps {
   flowId?: string
@@ -95,7 +106,9 @@ function FlowDesignerInner({
   const [currentFlow, setCurrentFlow] = useState<Flow | null>(null)
   const [flowValidation, setFlowValidation] = useState<FlowValidation | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [viewMode, setViewMode] = useState<'designer' | 'visualization' | 'simulation'>('designer')
+  const [viewMode, setViewMode] = useState<'designer' | 'visualization' | 'simulation' | 'templates' | 'versions'>('designer')
+  const [selectedTemplate, setSelectedTemplate] = useState<FlowTemplate | null>(null)
+  const [showTemplateForm, setShowTemplateForm] = useState(false)
 
   const { fitView, getViewport, setViewport } = useReactFlow()
 
@@ -435,6 +448,194 @@ function FlowDesignerInner({
     setSelectedBlock(null)
   }, [])
 
+  // Template Handlers
+  const handleUseTemplate = useCallback(async (template: FlowTemplate) => {
+    setSelectedTemplate(template)
+    setShowTemplateForm(true)
+  }, [])
+
+  const handleApplyTemplate = useCallback(async (template: FlowTemplate, parameters: Record<string, any>) => {
+    try {
+      setIsLoading(true)
+      const appliedFlow = await flowTemplateService.applyTemplate(template.id, parameters)
+      
+      // Convert applied flow to ReactFlow format
+      const reactFlowNodes: Node[] = appliedFlow.blocks.map(block => ({
+        id: block.id,
+        type: block.type,
+        position: block.position,
+        data: block,
+        selected: false
+      }))
+
+      const reactFlowEdges: Edge[] = appliedFlow.connections.map(conn => ({
+        id: conn.id,
+        source: conn.sourceBlock,
+        target: conn.targetBlock,
+        sourceHandle: conn.sourceOutput,
+        targetHandle: conn.targetInput,
+        type: 'default',
+        animated: false
+      }))
+
+      setNodes(reactFlowNodes)
+      setEdges(reactFlowEdges)
+      setCurrentFlow(appliedFlow)
+      
+      // Validate the applied flow
+      const validation = await flowBuilderService.validateFlow(appliedFlow.id)
+      setFlowValidation(validation)
+
+      setShowTemplateForm(false)
+      setSelectedTemplate(null)
+      setViewMode('designer')
+      
+      toast.success(`Template "${template.name}" applied successfully`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to apply template'
+      toast.error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [setNodes, setEdges])
+
+  const handleForkTemplate = useCallback(async (template: FlowTemplate) => {
+    try {
+      const forkedTemplate = await flowTemplateService.forkTemplate(template.id, [])
+      toast.success(`Forked template as "${forkedTemplate.name}"`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to fork template'
+      toast.error(errorMessage)
+    }
+  }, [])
+
+  const handleCreateTemplate = useCallback(async () => {
+    if (!currentFlow) return
+
+    try {
+      setIsLoading(true)
+      const template = await flowTemplateService.createTemplate(currentFlow, {
+        name: `${currentFlow.name} Template`,
+        description: `Template created from ${currentFlow.name}`,
+        category: 'Utility',
+        difficulty: 'intermediate',
+        tags: ['custom', 'user-created']
+      })
+      
+      toast.success(`Template "${template.name}" created successfully`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create template'
+      toast.error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [currentFlow])
+
+  const handleExportFlow = useCallback(async () => {
+    if (!currentFlow) return
+
+    try {
+      const exportData = await templateImportExportService.exportFlowAsTemplate(
+        currentFlow,
+        {
+          name: `${currentFlow.name} Export`,
+          description: `Exported flow: ${currentFlow.description}`,
+          category: 'Utility',
+          difficulty: 'intermediate'
+        }
+      )
+
+      const blob = new Blob([exportData], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${currentFlow.name.replace(/\s+/g, '_')}_template.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast.success('Flow exported successfully')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to export flow'
+      toast.error(errorMessage)
+    }
+  }, [currentFlow])
+
+  const handleImportFlow = useCallback(async (file: File) => {
+    try {
+      setIsLoading(true)
+      const result = await templateImportExportService.importFromFile(file, {
+        overwrite: false,
+        validateCompatibility: true,
+        updateExisting: false,
+        skipDuplicates: false
+      })
+
+      if (result.success && result.imported.length > 0) {
+        const importedTemplate = result.imported[0]
+        handleUseTemplate(importedTemplate)
+        toast.success(`Imported template "${importedTemplate.name}"`)
+      } else if (result.errors.length > 0) {
+        toast.error(`Import failed: ${result.errors[0].error}`)
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to import flow'
+      toast.error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [handleUseTemplate])
+
+  // Version Control Handlers
+  const handleCreateVersion = useCallback(async () => {
+    if (!currentFlow) return
+
+    try {
+      setIsLoading(true)
+      const changes = [
+        {
+          type: 'modify' as const,
+          target: 'metadata' as const,
+          path: 'flow',
+          description: 'Manual version creation',
+          newValue: currentFlow
+        }
+      ]
+
+      const version = await flowVersioningService.createVersion(currentFlow.id, changes, {
+        description: 'Manual checkpoint',
+        commitMessage: `Version created at ${new Date().toISOString()}`
+      })
+
+      toast.success(`Version ${version.version} created successfully`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create version'
+      toast.error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [currentFlow])
+
+  const handleRevertToVersion = useCallback(async (versionId: string) => {
+    if (!currentFlow) return
+
+    try {
+      setIsLoading(true)
+      const revertVersion = await flowVersioningService.revertToVersion(currentFlow.id, versionId)
+      
+      // Load the reverted flow
+      await loadFlow()
+      
+      toast.success(`Reverted to version ${revertVersion.version}`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to revert to version'
+      toast.error(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [currentFlow, loadFlow])
+
   const validationSummary = useMemo(() => {
     if (!flowValidation) return null
 
@@ -493,6 +694,72 @@ function FlowDesignerInner({
     )
   }
 
+  if (viewMode === 'templates') {
+    return (
+      <div className={cn("h-full flex flex-col", className)}>
+        <div className="border-b p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setViewMode('designer')}
+              >
+                Back to Designer
+              </Button>
+              <h2 className="text-lg font-semibold">Template Marketplace</h2>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1">
+          {showTemplateForm && selectedTemplate ? (
+            <TemplateParameterForm
+              template={selectedTemplate}
+              onApply={handleApplyTemplate}
+              onCancel={() => {
+                setShowTemplateForm(false)
+                setSelectedTemplate(null)
+              }}
+            />
+          ) : (
+            <TemplateMarketplace
+              onUseTemplate={handleUseTemplate}
+              onForkTemplate={handleForkTemplate}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (viewMode === 'versions' && currentFlow) {
+    return (
+      <div className={cn("h-full flex flex-col", className)}>
+        <div className="border-b p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setViewMode('designer')}
+              >
+                Back to Designer
+              </Button>
+              <h2 className="text-lg font-semibold">{currentFlow.name} - Version History</h2>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1">
+          <VersionHistory
+            flowId={currentFlow.id}
+            onRevertToVersion={(version) => handleRevertToVersion(version.id)}
+            onCreateVersion={handleCreateVersion}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={cn("h-full flex flex-col", className)}>
       {/* Flow Header */}
@@ -528,6 +795,25 @@ function FlowDesignerInner({
           </div>
 
           <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewMode('templates')}
+            >
+              <Template className="w-4 h-4 mr-1" />
+              Templates
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewMode('versions')}
+              disabled={!currentFlow}
+            >
+              <History className="w-4 h-4 mr-1" />
+              Versions
+            </Button>
+
             <Button
               variant="outline"
               size="sm"
@@ -687,6 +973,73 @@ function FlowDesignerInner({
                       <div className="text-center p-3 bg-muted rounded">
                         <div className="text-lg font-semibold">{edges.length}</div>
                         <div className="text-muted-foreground">Connections</div>
+                      </div>
+                    </div>
+
+                    {/* Flow Actions */}
+                    <div className="space-y-2">
+                      <h4 className="font-medium text-sm">Flow Actions</h4>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleCreateTemplate}
+                          disabled={!currentFlow || isLoading}
+                          className="text-xs"
+                        >
+                          <Package className="w-3 h-3 mr-1" />
+                          Save Template
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleCreateVersion}
+                          disabled={!currentFlow || isLoading}
+                          className="text-xs"
+                        >
+                          <GitBranch className="w-3 h-3 mr-1" />
+                          Create Version
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleExportFlow}
+                          disabled={!currentFlow || isLoading}
+                          className="text-xs"
+                        >
+                          <Download className="w-3 h-3 mr-1" />
+                          Export
+                        </Button>
+
+                        <label className="cursor-pointer">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isLoading}
+                            className="text-xs w-full"
+                            asChild
+                          >
+                            <div>
+                              <Upload className="w-3 h-3 mr-1" />
+                              Import
+                            </div>
+                          </Button>
+                          <input
+                            type="file"
+                            accept=".json,.yaml,.yml"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                handleImportFlow(file)
+                                e.target.value = ''
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
                       </div>
                     </div>
                   </div>
