@@ -26,22 +26,35 @@ import {
   Palette,
   Settings,
   Award,
-  ChevronDown
+  ChevronDown,
+  BarChart3,
+  Plus
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { Address } from 'viem'
 import { 
   FlowTemplate, 
   TemplateCategory, 
   TemplateSearchQuery,
   flowTemplateService 
 } from '@/services/templates/templateEngine'
+import { Flow } from '@/services/flowDesigner/flowBuilder'
 import { TemplateCard } from './TemplateCard'
+import { TemplateParameterForm } from './TemplateParameterForm'
+import { TemplatePreviewDialog } from './TemplatePreviewDialog'
+import { TemplateSearchFilters } from './TemplateSearchFilters'
+import { TemplateAnalyticsDashboard } from './TemplateAnalyticsDashboard'
+import { TemplateRatingComponent } from './TemplateRatingComponent'
+import { TemplateCreationWizard } from './TemplateCreationWizard'
 import { useTemplateSearch } from '@/hooks/useTemplateSearch'
 
 interface TemplateMarketplaceProps {
   onUseTemplate?: (template: FlowTemplate) => void
   onForkTemplate?: (template: FlowTemplate) => void
   onViewTemplate?: (template: FlowTemplate) => void
+  onCreateTemplate?: (flow: Flow) => void
+  userAddress?: Address
+  currentFlow?: Flow
   className?: string
 }
 
@@ -116,6 +129,9 @@ export function TemplateMarketplace({
   onUseTemplate, 
   onForkTemplate, 
   onViewTemplate,
+  onCreateTemplate,
+  userAddress,
+  currentFlow,
   className 
 }: TemplateMarketplaceProps) {
   const [searchQuery, setSearchQuery] = useState('')
@@ -123,7 +139,11 @@ export function TemplateMarketplace({
   const [selectedDifficulties, setSelectedDifficulties] = useState<string[]>([])
   const [sortBy, setSortBy] = useState<'rating' | 'downloads' | 'recent' | 'name'>('rating')
   const [showFilters, setShowFilters] = useState(false)
-  const [activeTab, setActiveTab] = useState<'browse' | 'popular' | 'recent'>('browse')
+  const [activeTab, setActiveTab] = useState<'browse' | 'popular' | 'recent' | 'analytics'>('browse')
+  const [previewTemplate, setPreviewTemplate] = useState<FlowTemplate | null>(null)
+  const [showParameterForm, setShowParameterForm] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<FlowTemplate | null>(null)
+  const [showCreationWizard, setShowCreationWizard] = useState(false)
 
   // Build search query
   const templateSearchQuery: TemplateSearchQuery = useMemo(() => ({
@@ -174,7 +194,31 @@ export function TemplateMarketplace({
   }
 
   const handleViewTemplate = (template: FlowTemplate) => {
-    onViewTemplate?.(template)
+    setPreviewTemplate(template)
+  }
+
+  const handleUseTemplateFromPreview = (template: FlowTemplate) => {
+    setPreviewTemplate(null)
+    setSelectedTemplate(template)
+    setShowParameterForm(true)
+  }
+
+  const handleApplyTemplate = async (template: FlowTemplate, parameters: Record<string, any>) => {
+    try {
+      const appliedFlow = await flowTemplateService.applyTemplate(template.id, parameters)
+      onUseTemplate?.(appliedFlow)
+      setShowParameterForm(false)
+      setSelectedTemplate(null)
+    } catch (error) {
+      console.error('Failed to apply template:', error)
+    }
+  }
+
+  const handleSearchChange = (query: TemplateSearchQuery) => {
+    if (query.query !== undefined) setSearchQuery(query.query || '')
+    if (query.category !== undefined) setSelectedCategory(query.category || null)
+    if (query.difficulty !== undefined) setSelectedDifficulties(query.difficulty || [])
+    if (query.sortBy !== undefined) setSortBy(query.sortBy)
   }
 
   const clearFilters = () => {
@@ -208,101 +252,64 @@ export function TemplateMarketplace({
             </p>
           </div>
           
-          <Button
-            variant="outline"
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center space-x-2"
-          >
-            <Filter className="w-4 h-4" />
-            <span>Filters</span>
-            <ChevronDown className={cn(
-              "w-4 h-4 transition-transform",
-              showFilters && "rotate-180"
-            )} />
-          </Button>
-        </div>
-
-        {/* Search Bar */}
-        <div className="search-section flex gap-4 mb-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search templates by name, description, or tags..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-          
-          <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Sort by..." />
-            </SelectTrigger>
-            <SelectContent>
-              {SORT_OPTIONS.map(option => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Filters Panel */}
-        {showFilters && (
-          <div className="filters-panel p-4 bg-muted rounded-lg space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-medium">Filters</h3>
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                Clear All
+          <div className="flex items-center space-x-2">
+            {currentFlow && (
+              <Button
+                variant="default"
+                onClick={() => setShowCreationWizard(true)}
+                className="flex items-center space-x-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Template</span>
               </Button>
-            </div>
+            )}
+            
+            <Button
+              variant="outline"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center space-x-2"
+            >
+              <Filter className="w-4 h-4" />
+              <span>Filters</span>
+              <ChevronDown className={cn(
+                "w-4 h-4 transition-transform",
+                showFilters && "rotate-180"
+              )} />
+            </Button>
+          </div>
+        </div>
 
-            {/* Category Filter */}
-            <div>
-              <label className="text-sm font-medium mb-2 block">Category</label>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant={selectedCategory === null ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => handleCategorySelect(null)}
-                >
-                  All Categories
-                </Button>
-                {TEMPLATE_CATEGORIES.map(category => {
-                  const Icon = category.icon
-                  return (
-                    <Button
-                      key={category.id}
-                      variant={selectedCategory === category.id ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => handleCategorySelect(category.id)}
-                      className="flex items-center space-x-1"
-                    >
-                      <Icon className="w-3 h-3" />
-                      <span>{category.name}</span>
-                    </Button>
-                  )
-                })}
-              </div>
+        {/* Enhanced Search and Filters */}
+        {showFilters ? (
+          <TemplateSearchFilters
+            onSearchChange={handleSearchChange}
+            totalResults={templates.length}
+            isLoading={isLoading}
+          />
+        ) : (
+          <div className="search-section flex gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search templates by name, description, or tags..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
             </div>
-
-            {/* Difficulty Filter */}
-            <div>
-              <label className="text-sm font-medium mb-2 block">Difficulty</label>
-              <div className="flex flex-wrap gap-2">
-                {DIFFICULTY_LEVELS.map(level => (
-                  <Button
-                    key={level.value}
-                    variant={selectedDifficulties.includes(level.value) ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => handleDifficultyToggle(level.value)}
-                  >
-                    {level.label}
-                  </Button>
+            
+            <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Sort by..." />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
                 ))}
-              </div>
-            </div>
+              </SelectContent>
+            </Select>
           </div>
         )}
       </div>
@@ -311,7 +318,7 @@ export function TemplateMarketplace({
       <div className="flex-1 flex flex-col">
         <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="flex-1 flex flex-col">
           <div className="border-b px-6">
-            <TabsList className="grid w-full max-w-md grid-cols-3">
+            <TabsList className="grid w-full max-w-lg grid-cols-4">
               <TabsTrigger value="browse" className="flex items-center space-x-2">
                 <Search className="w-4 h-4" />
                 <span>Browse</span>
@@ -323,6 +330,10 @@ export function TemplateMarketplace({
               <TabsTrigger value="recent" className="flex items-center space-x-2">
                 <Clock className="w-4 h-4" />
                 <span>Recent</span>
+              </TabsTrigger>
+              <TabsTrigger value="analytics" className="flex items-center space-x-2">
+                <BarChart3 className="w-4 h-4" />
+                <span>Analytics</span>
               </TabsTrigger>
             </TabsList>
           </div>
@@ -452,8 +463,46 @@ export function TemplateMarketplace({
               </div>
             </div>
           </TabsContent>
+
+          {/* Analytics Tab */}
+          <TabsContent value="analytics" className="flex-1 overflow-hidden">
+            <TemplateAnalyticsDashboard />
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Dialogs */}
+      <TemplatePreviewDialog
+        template={previewTemplate}
+        isOpen={!!previewTemplate}
+        onClose={() => setPreviewTemplate(null)}
+        onUse={handleUseTemplateFromPreview}
+        onFork={handleForkTemplate}
+      />
+
+      {selectedTemplate && (
+        <TemplateParameterForm
+          template={selectedTemplate}
+          isOpen={showParameterForm}
+          onClose={() => {
+            setShowParameterForm(false)
+            setSelectedTemplate(null)
+          }}
+          onApply={handleApplyTemplate}
+        />
+      )}
+
+      {currentFlow && (
+        <TemplateCreationWizard
+          flow={currentFlow}
+          isOpen={showCreationWizard}
+          onClose={() => setShowCreationWizard(false)}
+          onTemplateCreated={(template) => {
+            onCreateTemplate?.(template.flow)
+            setShowCreationWizard(false)
+          }}
+        />
+      )}
     </div>
   )
 }

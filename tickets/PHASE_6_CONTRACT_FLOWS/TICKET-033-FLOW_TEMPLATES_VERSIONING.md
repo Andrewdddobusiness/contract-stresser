@@ -439,8 +439,8 @@ export function TemplateParameterForm({
 - [x] Design ERC20 ⟷ ERC1155 atomic swap template
 - [x] Create liquidity provision flow template
 - [x] Build multi-token approval template
-- [ ] Design governance voting participation template
-- [ ] Create yield farming strategy template
+- [x] Design governance voting participation template
+- [x] Create yield farming strategy template
 
 ### Versioning System
 - [x] Implement `FlowVersioningService` class
@@ -453,22 +453,26 @@ export function TemplateParameterForm({
 - [x] Design template marketplace component
 - [x] Create template parameter configuration forms
 - [x] Build version history visualization
-- [ ] Implement template sharing dialogs
-- [ ] Add template creation wizard
+- [x] Implement template sharing dialogs
+- [x] Add template creation wizard
+- [x] Create template preview dialog
+- [x] Build template analytics dashboard
+- [x] Implement template rating component
+- [x] Create advanced search filters
 
 ### Import/Export
 - [x] Create template export functionality
 - [x] Build template import validation
 - [x] Implement sharing URL generation
 - [x] Add template packaging system
-- [ ] Create backup and restore capabilities
+- [x] Create backup and restore capabilities
 
 ### Integration
 - [x] Integrate with flow designer
-- [ ] Connect to permission system
-- [ ] Add template usage analytics
-- [ ] Build community rating system
-- [ ] Create template update notifications
+- [x] Connect to permission system
+- [x] Add template usage analytics
+- [x] Build community rating system
+- [x] Create template update notifications
 
 ## Success Criteria
 - [x] Users can browse and use built-in templates

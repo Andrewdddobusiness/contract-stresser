@@ -2,6 +2,7 @@
 
 import { Address } from 'viem'
 import { Flow, FlowBlock, BlockConnection, FlowModification } from '@/services/flowDesigner/flowBuilder'
+import { permissionEngineService, Permission } from '@/services/permissions/permissionEngine'
 
 // Template System Types
 export interface TemplateMetadata {
@@ -220,13 +221,18 @@ export class FlowTemplateService {
     return appliedFlow
   }
 
-  async searchTemplates(query: TemplateSearchQuery): Promise<FlowTemplate[]> {
+  async searchTemplates(query: TemplateSearchQuery, userAddress?: Address): Promise<FlowTemplate[]> {
     let results = Array.from(this.templates.values())
 
-    // Filter by visibility (only public templates for now)
-    results = results.filter(template => 
-      template.visibility === 'public' && template.status === 'published'
-    )
+    // Apply permission-based filtering
+    if (userAddress) {
+      results = await this.filterTemplatesByPermissions(results, userAddress)
+    } else {
+      // Filter by visibility (only public templates for unauthenticated users)
+      results = results.filter(template => 
+        template.visibility === 'public' && template.status === 'published'
+      )
+    }
 
     // Text search
     if (query.query) {
@@ -691,14 +697,170 @@ export class FlowTemplateService {
     return `share_${templateId}_${Date.now()}_${Math.random().toString(36).substr(2, 16)}`
   }
 
+  private async filterTemplatesByPermissions(
+    templates: FlowTemplate[], 
+    userAddress: Address
+  ): Promise<FlowTemplate[]> {
+    const filteredTemplates: FlowTemplate[] = []
+
+    for (const template of templates) {
+      // Check if user has permission to view this template
+      const canView = await this.checkTemplatePermission(template, userAddress, 'view')
+      
+      if (canView) {
+        filteredTemplates.push(template)
+      }
+    }
+
+    return filteredTemplates
+  }
+
+  private async checkTemplatePermission(
+    template: FlowTemplate,
+    userAddress: Address,
+    action: 'view' | 'use' | 'fork' | 'modify'
+  ): Promise<boolean> {
+    // Public templates are viewable by everyone
+    if (template.visibility === 'public' && action === 'view') {
+      return true
+    }
+
+    // Private templates are only accessible by the author
+    if (template.visibility === 'private') {
+      return template.author.address === userAddress
+    }
+
+    // Team templates require team membership or specific permissions
+    if (template.visibility === 'team') {
+      // Check if user is in template's team or has specific permission
+      const hasPermission = await permissionEngineService.checkPermission(
+        userAddress,
+        `template:${template.id}:${action}`,
+        template.author.address // Use author's address as the contract context
+      )
+
+      return hasPermission || template.author.address === userAddress
+    }
+
+    // Check for custom permissions
+    const hasCustomPermission = await permissionEngineService.checkPermission(
+      userAddress,
+      `template:${template.id}:${action}`,
+      template.author.address
+    )
+
+    return hasCustomPermission
+  }
+
+  async grantTemplatePermission(
+    templateId: string,
+    userAddress: Address,
+    action: 'view' | 'use' | 'fork' | 'modify',
+    grantedBy: Address,
+    expiresAt?: Date
+  ): Promise<Permission> {
+    const template = this.templates.get(templateId)
+    if (!template) {
+      throw new Error(`Template ${templateId} not found`)
+    }
+
+    // Check if granter has permission to grant (must be author or have admin permission)
+    if (template.author.address !== grantedBy) {
+      const canGrant = await permissionEngineService.checkPermission(
+        grantedBy,
+        `template:${templateId}:admin`,
+        template.author.address
+      )
+      
+      if (!canGrant) {
+        throw new Error('Insufficient permissions to grant access')
+      }
+    }
+
+    const permission: Permission = {
+      id: `template_${templateId}_${action}_${userAddress}`,
+      type: 'function',
+      subject: userAddress,
+      resource: `template:${templateId}:${action}`,
+      contract: template.author.address,
+      granted: true,
+      expiresAt,
+      metadata: {
+        title: `Template ${action} permission`,
+        description: `Permission to ${action} template "${template.name}"`,
+        category: 'template',
+        tags: ['template', action],
+        priority: 'medium',
+        source: 'manual'
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      grantedBy
+    }
+
+    await permissionEngineService.grantPermission(permission)
+    return permission
+  }
+
+  async revokeTemplatePermission(
+    templateId: string,
+    userAddress: Address,
+    action: 'view' | 'use' | 'fork' | 'modify',
+    revokedBy: Address
+  ): Promise<void> {
+    const template = this.templates.get(templateId)
+    if (!template) {
+      throw new Error(`Template ${templateId} not found`)
+    }
+
+    // Check if revoker has permission to revoke
+    if (template.author.address !== revokedBy) {
+      const canRevoke = await permissionEngineService.checkPermission(
+        revokedBy,
+        `template:${templateId}:admin`,
+        template.author.address
+      )
+      
+      if (!canRevoke) {
+        throw new Error('Insufficient permissions to revoke access')
+      }
+    }
+
+    const permissionId = `template_${templateId}_${action}_${userAddress}`
+    await permissionEngineService.revokePermission(permissionId, revokedBy)
+  }
+
+  async getTemplatePermissions(templateId: string): Promise<Permission[]> {
+    const template = this.templates.get(templateId)
+    if (!template) {
+      throw new Error(`Template ${templateId} not found`)
+    }
+
+    return permissionEngineService.getPermissionsByResource(`template:${templateId}`)
+  }
+
   private initializeBuiltInTemplates(): void {
     // Import built-in templates
-    import('@/templates/defi/atomicSwapTemplates').then(({ ATOMIC_SWAP_TEMPLATES }) => {
-      ATOMIC_SWAP_TEMPLATES.forEach(template => {
-        this.templates.set(template.id, template)
-        this.indexTemplate(template)
+    Promise.all([
+      import('@/templates/defi/atomicSwapTemplates').then(({ ATOMIC_SWAP_TEMPLATES }) => {
+        ATOMIC_SWAP_TEMPLATES.forEach(template => {
+          this.templates.set(template.id, template)
+          this.indexTemplate(template)
+        })
+      }),
+      import('@/templates/governance/votingTemplates').then(({ GOVERNANCE_TEMPLATES }) => {
+        GOVERNANCE_TEMPLATES.forEach(template => {
+          this.templates.set(template.id, template)
+          this.indexTemplate(template)
+        })
+      }),
+      import('@/templates/defi/yieldFarmingTemplates').then(({ YIELD_FARMING_TEMPLATES }) => {
+        YIELD_FARMING_TEMPLATES.forEach(template => {
+          this.templates.set(template.id, template)
+          this.indexTemplate(template)
+        })
       })
-    }).catch(error => {
+    ]).catch(error => {
       console.warn('Failed to load built-in templates:', error)
     })
   }
